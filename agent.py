@@ -9,14 +9,15 @@ class Agent(object):
     def __init__(self, env):
         self._env = env
         self.experience = []
-        self.batch_size = 64
-        self.max_exp = 500
+        self.batch_size = 128
+        self.max_exp = 2000
         self.alpha = 0.001
         self.gamma = 0.9
         self.epsilon = 1.0
         self.decay = 0.99
+        self.min_epsilon = 0.05
         self.ob_size = 4
-        self.hidden_size = 32
+        self.hidden_size = 16
         self.out_size = 2
         self.scale = 0.1
         self.model_ctx = mx.cpu()
@@ -25,7 +26,7 @@ class Agent(object):
             self.net.add(gluon.nn.Dense(self.hidden_size, activation="relu"))
             self.net.add(gluon.nn.Dense(self.hidden_size, activation="relu"))
             self.net.add(gluon.nn.Dense(self.out_size))
-        self.net.collect_params().initialize(mx.init.Normal(), ctx=self.model_ctx)
+        self.net.collect_params().initialize(mx.init.Xavier(), ctx=self.model_ctx)
         self.trainer = gluon.Trainer(self.net.collect_params(), 'sgd', {'learning_rate': self.alpha})
         self.square_loss = gluon.loss.L2Loss()
 
@@ -42,23 +43,19 @@ class Agent(object):
         if len(self.experience) < self.batch_size:
             return
         # build replay batch
-        x = []
-        target = []
         sample = random.sample(self.experience, self.batch_size)
-        for ob, next_ob, reward, action, done in sample:
-            y = self.net(nd.array(np.reshape(ob, [-1, self.ob_size])))
-            y[0][action] = reward
-            if not done:
-                y[0][action] += np.max(self.net(nd.array(np.reshape(next_ob, [-1, self.ob_size]))).asnumpy()) * self.gamma
-            x.append(ob)
-            target.append(y[0].asnumpy().tolist())
-        x = nd.array(x)
-        target = nd.array(target)
-        # update model
+        ob = nd.array([s[0] for s in sample])
+        next_ob = nd.array([s[1] for s in sample])
+        reward = nd.array([s[2] for s in sample])
+        action = nd.array([s[3] for s in sample])
+        next_q = nd.max(self.net(next_ob), axis=1)
+        for i in range(self.batch_size):
+            if sample[i][4]:
+                next_q[i] = 0
         with autograd.record():
-            f_y = self.net(x)
-            loss = self.square_loss(target, f_y)
-            #print("loss {}".format(nd.mean(loss).asscalar()))
+            current_q = self.net(ob).pick(action)
+            target = next_q * self.gamma + reward
+            loss = self.square_loss(current_q, target)
         loss.backward()
         self.trainer.step(self.batch_size)
 
@@ -71,24 +68,25 @@ class Agent(object):
             timestep = 0
             while not done:
                 action = self.query(ob)
-                print(action)
                 next_ob, reward, done, info = self._env.step(action)
                 # remember current trasition for replay
                 self.remember(ob, next_ob, reward, action, done)
                 ob = next_ob
                 timestep += 1
                 if done and (e+1)%25==0:
+                    self.replay()
                     print("Episode {} finishes after {} steps".format(e+1, timestep))
-            self.replay()
 
 
 
     def query(self, observation):
         # with probability epsilon, randomly explore
-        self.epsilon *= self.decay
+        if self.epsilon >= self.min_epsilon:
+            self.epsilon *= self.decay
+        observation = nd.array(observation)
         if random.random() < self.epsilon:
             return self._env.action_space.sample()
         else:
-            return np.argmax((self.net(nd.reshape(nd.array(observation), [-1, self.ob_size]))).asnumpy())
+            return int(nd.argmax(self.net(nd.reshape(observation, [-1, self.ob_size])), axis=1).asscalar())
 
 
