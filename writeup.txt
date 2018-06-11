@@ -1,0 +1,13 @@
+Task: CartPole
+
+Approach: Reinforcement Learning
+
+Algorithm: Deep Q-learning with experience replay and target network
+
+Results:
+    This agent solves CartPole after around 200 episodes and training time is less than 10 seconds. It replays experience every 25 episodes and update
+target network every 100 episodes (different from but better than standard DQN).
+    It uses 2 "tanh" hidden layers, each with 16 nodes, and an output layer (2 nodes) to construct the network. Paramters are initialized using xavier.
+    When using any more hidden layers or nodes, or using normal random initialization, the agent always exhibits a random policy (which I do not quite
+understand). Also, the agent cannot solve CartPole even after 5000 episodes if using relu hidden layers------I've tuned several days to make it achieve
+170 rewards but cannot do better.
